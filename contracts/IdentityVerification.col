@@ -1,0 +1,158 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+/**
+ * @title IdentityVerification
+ * @dev Smart contract for managing decentralized identity verification
+ */
+contract IdentityVerification {
+    // Enum to represent verification status
+    enum VerificationStatus { NotSubmitted, Pending, Verified, Rejected }
+    
+    // Struct to store user verification data
+    struct UserVerification {
+        address userAddress;
+        string ipfsDocumentHash;
+        uint256 timestamp;
+        VerificationStatus status;
+        string verificationMetadata;
+    }
+    
+    // Mapping from user address to verification data
+    mapping(address => UserVerification) public verifications;
+    
+    // Array to keep track of all verified addresses
+    address[] public verifiedUsers;
+    
+    // Admin addresses that can approve verifications
+    mapping(address => bool) public verifiers;
+    
+    // Contract owner
+    address public owner;
+    
+    // Events
+    event VerificationRequested(address indexed user, string ipfsHash, uint256 timestamp);
+    event VerificationStatusChanged(address indexed user, VerificationStatus status);
+    event VerifierAdded(address indexed verifier);
+    event VerifierRemoved(address indexed verifier);
+    
+    // Modifiers
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Only owner can perform this action");
+        _;
+    }
+    
+    modifier onlyVerifier() {
+        require(verifiers[msg.sender] || msg.sender == owner, "Only verifiers can perform this action");
+        _;
+    }
+    
+    /**
+     * @dev Constructor sets the contract owner
+     */
+    constructor() {
+        owner = msg.sender;
+        verifiers[msg.sender] = true;
+    }
+    
+    /**
+     * @dev Add a new verifier
+     * @param _verifier Address of the new verifier
+     */
+    function addVerifier(address _verifier) external onlyOwner {
+        require(_verifier != address(0), "Invalid address");
+        verifiers[_verifier] = true;
+        emit VerifierAdded(_verifier);
+    }
+    
+    /**
+     * @dev Remove a verifier
+     * @param _verifier Address of the verifier to remove
+     */
+    function removeVerifier(address _verifier) external onlyOwner {
+        require(verifiers[_verifier], "Address is not a verifier");
+        verifiers[_verifier] = false;
+        emit VerifierRemoved(_verifier);
+    }
+    
+    /**
+     * @dev Submit a verification request
+     * @param _ipfsHash IPFS hash of the user's verification documents
+     */
+    function requestVerification(string calldata _ipfsHash) external {
+        require(bytes(_ipfsHash).length > 0, "IPFS hash cannot be empty");
+        require(verifications[msg.sender].status == VerificationStatus.NotSubmitted || 
+                verifications[msg.sender].status == VerificationStatus.Rejected, 
+                "Verification already submitted or approved");
+        
+        verifications[msg.sender] = UserVerification({
+            userAddress: msg.sender,
+            ipfsDocumentHash: _ipfsHash,
+            timestamp: block.timestamp,
+            status: VerificationStatus.Pending,
+            verificationMetadata: ""
+        });
+        
+        emit VerificationRequested(msg.sender, _ipfsHash, block.timestamp);
+    }
+    
+    /**
+     * @dev Update verification status
+     * @param _user Address of the user
+     * @param _status New verification status
+     * @param _metadata Additional metadata about the verification
+     */
+    function updateVerificationStatus(
+        address _user, 
+        VerificationStatus _status, 
+        string calldata _metadata
+    ) external onlyVerifier {
+        require(_user != address(0), "Invalid address");
+        require(verifications[_user].status == VerificationStatus.Pending, "Verification not pending");
+        
+        verifications[_user].status = _status;
+        verifications[_user].verificationMetadata = _metadata;
+        
+        // If the user is verified, add to verified users array
+        if (_status == VerificationStatus.Verified) {
+            verifiedUsers.push(_user);
+        }
+        
+        emit VerificationStatusChanged(_user, _status);
+    }
+    
+    /**
+     * @dev Check if a user is verified
+     * @param _user Address of the user to check
+     * @return True if the user is verified, false otherwise
+     */
+    function isVerified(address _user) external view returns (bool) {
+        return verifications[_user].status == VerificationStatus.Verified;
+    }
+    
+    /**
+     * @dev Get a user's verification data
+     * @param _user Address of the user
+     * @return UserVerification struct with user's verification data
+     */
+    function getUserVerification(address _user) external view returns (UserVerification memory) {
+        return verifications[_user];
+    }
+    
+    /**
+     * @dev Get the number of verified users
+     * @return Number of verified users
+     */
+    function getVerifiedUsersCount() external view returns (uint256) {
+        return verifiedUsers.length;
+    }
+    
+    /**
+     * @dev Transfer ownership of the contract
+     * @param _newOwner Address of the new owner
+     */
+    function transferOwnership(address _newOwner) external onlyOwner {
+        require(_newOwner != address(0), "Invalid address");
+        owner = _newOwner;
+    }
+}
